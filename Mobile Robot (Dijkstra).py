@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import sys
 import time
-import copy
 
 
 def workspace_check(x_new, y_new):
@@ -207,9 +206,9 @@ def dijkstra(parent_node, parent_cost):
     neighbor_nodes = []
     
     for j, k in enumerate(search_pt):
-        neighbor_node = np.intersect1d(np.where(X == k[0]), np.where(Y == k[1]))[0]
-        traveling_cost_to_neighbor = search_travel_cost[j]
-        neighbor_nodes.append((neighbor_node, traveling_cost_to_neighbor))
+        neighbor_node = (node_states == k).all(axis=1).nonzero()[0][0]
+        traveling_cost = search_travel_cost[j]
+        neighbor_nodes.append((neighbor_node, traveling_cost))
 
     # ----------------------- Removing Nodes from neighbor_nodes if present in visited_nodes ---------------------------
     
@@ -219,23 +218,21 @@ def dijkstra(parent_node, parent_cost):
 
         j, k = neighbor_nodes[counter]
 
-        if j in visited_nodes:
-            neighbor_nodes.remove((j, k))
-
-        else:
+        if len(np.where(unvisited_nodes == j)[0]) != 0:  # neighbor node is in unvisited nodes
             counter += 1
+            
+        else:
+            neighbor_nodes.remove((j, k))
 
     # ------------------------------ Updating Cumulative Cost of neighbor_nodes ----------------------------------------
     
     for j in neighbor_nodes:
         
         neighbor_node = j[0]
-        traveling_cost_to_neighbor = j[1]
-        
-        neighbor_node_index = unvisited_nodes.index(neighbor_node)
-        
-        if unvisited_nodes_cost[neighbor_node_index] > parent_cost + traveling_cost_to_neighbor:
-            unvisited_nodes_cost[neighbor_node_index] = parent_cost + traveling_cost_to_neighbor
+        traveling_cost = j[1]
+                
+        if nodes_cost[neighbor_node] > parent_cost + traveling_cost:
+            nodes_cost[neighbor_node] = parent_cost + traveling_cost
             track.update({neighbor_node: parent_node})
             
 
@@ -243,20 +240,23 @@ def dijkstra(parent_node, parent_cost):
 
 X_ = np.arange(401)
 Y_ = np.arange(301)
-X, Y = np.meshgrid(X_, Y_)
-X = X.flatten()
-Y = Y.flatten()
-Z = np.stack((X, Y)) 
 
-nodes = []
-node_states = {}
-nodes_cost = []
+X = []
+Y = []
+
+for ix in range(len(X_)):  
+    for iy in range(len(Y_)): 
+        if workspace_check(X_[ix], Y_[iy]) and obstacle_space(X_[ix], Y_[iy]):
+            X.append(X_[ix])
+            Y.append(Y_[iy])
+            
+nodes_flag = np.zeros(len(X))
+node_states = np.zeros((len(X), 2))
+nodes_cost = np.zeros(len(X))
 
 for i in range(len(X)):
-    if workspace_check(X[i], Y[i]) and obstacle_space(X[i], Y[i]):
-        nodes.append(i)
-        node_states.update({i: (X[i], Y[i])})
-        nodes_cost.append(np.inf)
+    node_states[i] = np.array([X[i], Y[i]])
+    nodes_cost[i] = np.inf
                             
 # ---------------------- Taking User Input for Start Point and checking for its validity -------------------------------
 
@@ -265,7 +265,7 @@ X_start = int(input())
 print('Enter Start location (Y_pt): ')
 Y_start = int(input())
 
-start = (X_start, Y_start)
+start = np.array([X_start, Y_start])
 
 if workspace_check(X_start, Y_start):
     if not obstacle_space(X_start, Y_start):
@@ -284,7 +284,7 @@ X_end = int(input())
 print('Enter End location (Y_pt): ')
 Y_end = int(input())
 
-end = (X_end, Y_end)
+end = np.array([X_end, Y_end])
 
 if workspace_check(X_end, Y_end):
     if not obstacle_space(X_end, Y_end):
@@ -296,19 +296,15 @@ else:
     sys.exit('Exiting ....')
 
 # finds node numbers for start and end states       
-start_node = list(node_states.keys())[list(node_states.values()).index(start)]
-goal_node = list(node_states.keys())[list(node_states.values()).index(end)]
+start_node = (node_states == start).all(axis=1).nonzero()[0][0]
+goal_node = (node_states == end).all(axis=1).nonzero()[0][0]
 
 print('\nStart Node: ', start_node)
 print('Goal Node: ', goal_node)
 
-start_node_index = nodes.index(start_node)
-nodes_cost[start_node_index] = 0.0  # assigning cost of start node to zero
+nodes_cost[start_node] = 0.0  # assigning cost of start node to zero
 
 visited_nodes = []
-visited_nodes_cost = []
-unvisited_nodes = copy.deepcopy(nodes)
-unvisited_nodes_cost = copy.deepcopy(nodes_cost)
 track = {}
 
 iterator = 0
@@ -318,11 +314,10 @@ start_time = time.time()
 print('\n\nSolving.........')
 print('\nIteration # \t Time (mins.)\n')
 
-while goal_node not in visited_nodes:
-    unvisited_sorted = [(i, j) for i, j in sorted(zip(unvisited_nodes_cost, unvisited_nodes))]
-    next_node_cost = unvisited_sorted[0][0]
-    next_node = unvisited_sorted[0][1]
-    next_node_index = unvisited_nodes.index(next_node)
+while nodes_flag[goal_node] != 1:
+    unvisited_nodes = np.where(nodes_flag == 0)[0]
+    next_node_cost = np.min(nodes_cost[unvisited_nodes])
+    next_node = np.intersect1d(np.where(nodes_cost == next_node_cost)[0], unvisited_nodes)[0]
     
     if iterator % 5000 == 0 and iterator != 0:
         mid_time = (time.time() - start_time)/60
@@ -330,17 +325,13 @@ while goal_node not in visited_nodes:
     
     if len(unvisited_nodes) > 1:
         dijkstra(next_node, next_node_cost)
-        unvisited_nodes.pop(next_node_index)
-        unvisited_nodes_cost.pop(next_node_index)
+        nodes_flag[next_node] = 1
         visited_nodes.append(next_node)
-        visited_nodes_cost.append(next_node_cost)
         iterator += 1
     
     elif len(unvisited_nodes) == 1:
-        unvisited_nodes.pop(next_node_index)
-        unvisited_nodes_cost.pop(next_node_index)
+        nodes_flag[next_node] = 1
         visited_nodes.append(next_node)
-        visited_nodes_cost.append(next_node_cost)
         iterator += 1
     
 end_time = time.time()
@@ -352,11 +343,20 @@ print('\n Time taken to find optimal (shortest) path: {0:1.3f} min'.format(total
 x_explore = []
 y_explore = []
 
+print('\n\n### Writing Visited Nodes to an Output File ###')
+fname1 = './Visited_Nodes_Mobile_Robot_Dijkstra.txt'
+myfile1 = open(fname1, "w")
+myfile1.write('Node # \t X \t Y \t Cumulative Cost\n')
+
 for node in visited_nodes:
     x_pt, y_pt = node_states[node]
+    final_cost = nodes_cost[node]
     x_explore.append(x_pt)
     y_explore.append(y_pt)
+    myfile1.write('{0} \t {1:1.3f} \t {2:1.3f} \t {3:1.3f}\n'.format(node, x_pt, y_pt, final_cost))
 
+print('\nCompleted !!!')
+    
 # Optimal solution trajectory
 back_track = []
 
@@ -377,11 +377,24 @@ trajectory = traj(goal_node)
 x_solution = []
 y_solution = []
 
+print('\n\n### Writing the solution trajectory to an Output File ###')
+
+fname2 = './Solution_Path_Mobile_Robot_Dijkstra.txt'
+myfile2 = open(fname2, "w")
+myfile2.write('Time taken to solve:\t{0:1.3f} minutes\n'.format(total_time))
+myfile2.write('Required Solution trajectory\n')
+myfile2.write('\nNode # \t X \t Y\n')
+
 for node in trajectory:
     x_pt, y_pt = node_states[node]
     x_solution.append(x_pt)
     y_solution.append(y_pt)
+    myfile2.write('{0} \t {1:1.3f} \t {2:1.3f}\n'.format(node, x_pt, y_pt))
+    
+print('\nCompleted !!!')
 
+print('\n\n### Creating Visualization ###')
+    
 # --------------------------------------- Visualization starts from here -----------------------------------------------
 
 plt.style.use('seaborn-pastel')
@@ -494,26 +507,4 @@ animation.save('Mobile Robot Visualization (Dijkstra).mp4', dpi=300)
 
 plt.close()
 
-print('\n\n### Writing Visited Nodes to an Output File ###')
-fname1 = './Visited_Nodes_Mobile_Robot_Dijkstra.txt'
-myfile1 = open(fname1, "w")
-myfile1.write('Node # \t X \t Y \t Cumulative Cost\n')
-
-for node, x_pt, y_pt, final_cost in zip(visited_nodes, x_explore, y_explore, visited_nodes_cost):
-    myfile1.write('{0} \t {1:1.3f} \t {2:1.3f} \t {3:1.3f}\n'.format(node, x_pt, y_pt, final_cost))
-
-print('\nCompleted !!!')
-
-print('\n\n### Writing the solution trajectory to an Output File ###')
-
-fname2 = './Solution_Path_Mobile_Robot_Dijkstra.txt'
-myfile2 = open(fname2, "w")
-myfile2.write('Time taken to solve:\t{0:1.3f} minutes\n'.format(total_time))
-myfile2.write('Required Solution trajectory\n')
-myfile2.write('\nNode # \t X \t Y\n')
-
-for node in trajectory:
-    x_pt, y_pt = node_states[node]
-    myfile2.write('{0} \t {1:1.3f} \t {2:1.3f}\n'.format(node, x_pt, y_pt))
-    
 print('\nCompleted !!!')
